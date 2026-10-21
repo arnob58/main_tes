@@ -1,95 +1,112 @@
-# Tessera v0.1
-
-A local-first agentic assistant for a 6 GB GPU. **Gemma reasons, Python executes, SQLite + MiniLM remember, the skill engine extends, the orchestrator coordinates.** All seven phases of the spec are implemented and tested against fakes for the model, screen and network; the parts that need your hardware are listed under *Not yet verified*.
-
-See `ARCHITECTURE.md` for how the pieces fit.
-
-## Install
-
-```bash
-python -m venv .venv && source .venv/bin/activate          # Windows: .venv\Scripts\activate
-# llama-cpp-python with CUDA (needs the CUDA toolkit). Version ≥ 0.3.36 has Gemma4ChatHandler (vision).
-CMAKE_ARGS="-DGGML_CUDA=on" pip install --no-cache-dir "llama-cpp-python>=0.3.36"
-#   PowerShell: $env:CMAKE_ARGS="-DGGML_CUDA=on"; pip install --no-cache-dir "llama-cpp-python>=0.3.36"
-pip install -e ".[memory,desktop,dev]"     # sentence-transformers, pyautogui+pillow, pytest
+Tessera
+A local AI agent that runs on a laptop GPU. Gemma 4 E2B does the thinking. Python does the work. Memory lives in a small SQLite graph instead of a heavy RAG stack. No API keys, no cloud, no monthly bill.
+Built and tested on a Windows laptop with an RTX 3050 (6 GB VRAM).
+![Tessera web chat](docs/screenshot.png)
+---
+What it can do
+Chat, in the browser (`python -m tessera.web`) or in a terminal (`python -m tessera`).
+Build files you ask for. Web pages, Python scripts, JSON, Markdown. It writes them in parts, checks each part, fixes its own bugs and saves the result to `~/Documents/Tessera`.
+Read your files. Name a file in your message and Tessera reads it before answering instead of guessing.
+Remember things across sessions, and recall them by association, not just by similar wording.
+Make new tools for itself. When it's missing a skill, it writes a small Python tool, tests it in a separate process and keeps it if it works.
+Ask before risky actions, such as overwriting a file, installing a package or running generated code.
+Things it has built end to end on the 3050: a live weather page using the Open-Meteo API, a peer-to-peer chat program in Python, and its own chat page.
+---
+How it works
+1. A sequential agent pipeline
+Every message goes through the same small set of steps, and only as many as it needs:
 ```
-
-**Model files** (put them in `models/`):
-- an instruction-tuned **Gemma 4 E2B** GGUF — Q4_K_M is a sensible start for 6 GB
-- its **mmproj** GGUF (vision projector) — needed only for screen understanding
-
-MiniLM (`sentence-transformers/paraphrase-MiniLM-L3-v2`) downloads automatically on first use (~70 MB, CPU).
-
-## Configure
-
-```bash
-cp tessera.example.toml tessera.toml
+            ┌──────────┐
+  message → │  Router  │  "Instant" / "Medium" / "Complex"
+            └────┬─────┘
+                 ▼
+   interpret → develop → evaluate → respond
+               (tools)   (checks the saved files)
 ```
-Set `model_path` and `mmproj_path`. Every field in `tessera/config.py` can be set there or as `TESSERA_<FIELD>` env vars.
+Router. A grammar-constrained call decides how hard the request is. A greeting skips straight to `respond`; a "build me a website" request gets the full pass.
+Develop. The model calls tools (`create_file`, file reading, skills) and sees what they return.
+Evaluate. Judges the files that were actually saved, not what the model said it did, and can send the work back for revision.
+One model, many roles. Every stage uses the same loaded Gemma with a different prompt, which is what makes this fit in 6 GB.
+Pipelines are plain data in `tessera.toml`, so you can reorder or drop stages without touching code.
+2. Memory in three layers
+Layer	What it holds	Lifetime
+Working memory	the current task: tool results, saved files, retry counters	one request
+Conversation window	the last few messages	the session
+Long-term memory	everything worth keeping, in SQLite, linked as an association graph	permanent
+The long-term layer is inspired by how smell works. The smell of a biscuit can take you straight back to a childhood place, even though the smell itself has nothing to do with that place; the two are just connected.
+So instead of only searching for text that looks like your question, Tessera:
+finds a few starting points with small local embeddings (MiniLM, on the CPU),
+spreads activation along the links in the graph (this → reminded me of that → which was connected to something else),
+returns what lit up, including memories that share almost no words with the question.
+One of the tests checks exactly this: cookie → bakery → childhood → grandmother is recalled even though "cookie" and "grandmother" have close to zero similarity.
+It stays light: one SQLite file, a ~70 MB embedding model on the CPU, no vector database server.
+3. Self-checking file builder
+Small models make small mistakes, so Tessera checks everything before saving:
+Big files are written section by section, each checked on its own, then the whole file is checked.
+Syntax checks for HTML, CSS, JavaScript (`node --check`), JSON and Python.
+Deterministic fixes, applied without asking the model again: duplicated functions are removed, the start-up call is moved below the code it calls, broken CSS is repaired, and hyphenated JavaScript names (`chat-history` → `chatHistory`) are renamed.
+Pinpointed errors. When a check fails, the model sees the failing line with a pointer and a plain-English hint, not just "SyntaxError (line 1)".
+Requirement checks. If you ask for `load_config` and `StaticApprover`, the file must actually use them. Code that calls itself "simulated" or "dummy" is rejected.
+Context recovery. When a file outgrows the 4k context window, generation continues in a fresh context from a checkpoint.
+---
+Quick start (Windows)
+You need: Python 3.11+, an NVIDIA GPU with 6 GB or more, the CUDA toolkit, and Node.js (optional, for JavaScript checks).
+```powershell
+git clone https://github.com/arnob58/main_tes.git tessera
+cd tessera
+python -m venv .venv
+.venv\Scripts\activate
 
-**Two backends, same behaviour:**
-- `backend = "llama_cpp"` (default) — model loaded in-process; vision via `Gemma4ChatHandler` on the same instance.
-- `backend = "server"` — talk to llama.cpp's server, which gets new model support first:
-  `llama-server -m models/gemma.gguf --mmproj models/mmproj.gguf -c 4096 -ngl 99 --port 8080`
-
-## Run
-
-```bash
-python -m tessera                 # real model
-python -m tessera --scripted      # no model: canned replies, to try the UI and plumbing
-python scripts/smoke_test.py --model models/<file>.gguf    # first real-hardware check
-python scripts/benchmark.py                                # Phase 7 measurements
-python -m pytest -q                                        # 130 tests, no GPU needed
+# llama-cpp-python with CUDA
+$env:CMAKE_ARGS="-DGGML_CUDA=on"; pip install --no-cache-dir "llama-cpp-python>=0.3.36"
+pip install -e ".[memory,dev]"
 ```
-
-Console commands: `/remember`, `/recall`, `/forget`, `/skills`, `/workflow <objective>`, `/workflows`, `/resume <id>`, `/approve <id> <step>`, `/stats`, `/history`, `/debug`, `/quit`. Ctrl+C cancels a running task at the next safe point. Consequential actions (package installs, risky generated code, typing into apps, submit/send/apply clicks, running external apps, source patches) ask first; answer `a` to always allow that kind for the session.
-
-## What each phase delivers
-
-| Phase | Delivered | Key evidence in tests |
-|---|---|---|
-| 1 Core | single-model engine with exact token counts, GBNF-constrained router, data-driven agents and pipelines, console | one model instance shared by all agents; bounded loops; cancellation |
-| 2 Memory | 5-message window, SQLite archive, MiniLM index, term graph, spreading activation, safe semantic cache | cookie → bakery → childhood → grandmother found with ~0 similarity |
-| 3 Skills | AST-only discovery, L1 skill / L2 recipe / L3 generation, sandboxed child-process runtime, deps, repair, promotion | zero-skill bootstrap end-to-end; missing dependency installed and retried |
-| 4 Context | real-tokenizer tracking, 90% trigger, AST split, checkpoints, fresh-context continuation, project builder | module 2.4× the window rebuilt byte-identical over 4 recoveries; crash resume |
-| 5 Desktop | PyAutoGUI driver, normalised coordinates, multimodal observe-act loop, llama-server backend | job-application flow with approval gates; stale screenshots never clicked |
-| 6 Autonomy | resumable workflows, task checkpoints, chatbot discovery + adapters, AI-to-AI dialogue, tested self-patching | "GPT Luna" found via `ast`, multi-turn chat with session state; failing patch rolled back |
-| 7 Measure | per-stage latency/tokens/s, skill success, router accuracy, RSS/VRAM, benchmark script | metrics recorded through a model decorator that never loads a second model |
-
-## Test report
-
-**Executed here: 130 passed** (Python 3.13, Linux, no GPU, no display, scripted model). Real child processes, real SQLite, real HTTP servers on localhost, and the real installed `llama-cpp-python` 0.3.36 for prompt rendering, GBNF compilation and the vision handler class.
-
-| File | Tests | Covers |
-|---|---|---|
-| test_config | 4 | defaults, TOML/env layering, unknown-key rejection |
-| test_router | 10 | strict/lenient/fallback parsing, grammar + budget |
-| test_engine | 7 | one-model rule, counted = evaluated tokens, clamping, KV reset |
-| test_active_context | 2 | FIFO eviction |
-| test_pipeline | 9 | stage shapes, handoffs, revision + pass bounds, skill round-trips |
-| test_orchestrator | 8 | end-to-end turn, no internal state in memory, cancellation, OCP |
-| test_memory | 11 | associative chain, provenance, persistence, cache invalidation, forget |
-| test_skills | 25 | discovery, observation capture, L1/L2/L3, deps, repair, approvals, relative-path regression |
-| test_context_recovery | 13 | tracker math, AST split invariants, recovery, resume, prompt fitting, project build |
-| test_desktop_vision | 15 | loop + gates, coordinates, server client, real llama-cpp checks |
-| test_autonomy | 15 | workflows, external adapters, AI conversation, self-patching |
-| test_architecture | 11 | import-graph layering, wiring, metrics |
-
-Bugs the tests caught during the build: plural normalisation broke graph links ("cookies" → "cooky"); continuation prompts grew with every function until they overflowed; relative workspaces broke the child process (found by running the console end to end, then pinned with a regression test).
-
-## Not yet verified (needs your machine)
-
-- **Any real Gemma output.** Prompt quality, router accuracy, skill-generation success and the action-JSON reliability of a 2B-class model are unmeasured. Run `scripts/smoke_test.py` then `scripts/benchmark.py`.
-- **Gemma 4 E2B vision through llama-cpp-python** on your GPU (handler exists; not exercised with weights).
-- **Real MiniLM** — tests use a lexical hashing embedder because model downloads were blocked here.
-- **PyAutoGUI on a real display**, Chrome launching, HiDPI scaling.
-- **CUDA build, VRAM headroom** with model + mmproj + 4k context on 6 GB.
-
-## Known limitations
-
-- Generated skills run as you, with your environment variables. The static risk scan catches common destructive calls; it is not a sandbox.
-- Promotion after one successful run proves only that run; there is no regression suite per skill yet.
-- GUI clicking relies on the model's coordinates; small vision models read screens better than they point.
-- Core self-patches are applied on disk but only take effect after restart (reported as such). Skill patches are live immediately.
-- Workflow planning quality depends on the model; plans are capped at 10 steps.
-- The procedural/heuristic memory subsystem is intentionally not implemented (interface space reserved).
+Model: download a Gemma 4 E2B instruct GGUF (Q4_K_M fits comfortably in 6 GB) into `models/`.
+Config:
+```powershell
+copy tessera.example.toml tessera.toml
+```
+Then set `model_path` in `tessera.toml` to your file.
+Run:
+```powershell
+python -m tessera.web        # browser chat, opens http://localhost:8000
+python -m tessera            # terminal chat
+python -m tessera.web --scripted   # try the UI without loading a model
+```
+Run only one of them at a time, since there's room for one copy of the model on a 6 GB card.
+On Linux/macOS it's the same steps, with `source .venv/bin/activate`, `CMAKE_ARGS="-DGGML_CUDA=on" pip install …` and `cp`.
+Try these
+```
+Build a simple weather page for Toronto using the Open-Meteo API and save it as weather/weather.html
+Read D:\tessera\README.md and summarise it in five bullet points
+/remember I prefer dark-mode designs      (terminal only: commands like /remember, /recall, /skills)
+```
+---
+Project layout
+```
+tessera/
+  core/        orchestrator, task state, events, approvals, metrics
+  agents/      the pipeline and how model output is parsed into tool calls
+  llm/         llama.cpp engine, llama-server backend, router, prompts
+  memory/      SQLite store, embeddings, association graph, semantic cache
+  context/     token tracking, checkpoints, fresh-context continuation
+  tools/       file builder, validators, requirement checks, code generation
+  skills/      skill discovery, sandboxed runner, skill generation
+  execution/   child-process harness for skills
+  web/         browser UI (python -m tessera.web)
+  ui/          terminal UI (python -m tessera)
+tests/         219 tests; run without a GPU using a scripted model
+```
+`ARCHITECTURE.md` covers the design in depth. The short version: every part talks to the others through small interfaces, `app.py` is the only place they're wired together, and a test enforces which layers may import which.
+Tests
+```powershell
+python -m pytest -q
+```
+No GPU needed. The tests use a scripted model plus real SQLite, real child processes and real local HTTP servers. Many of them replay actual mistakes Gemma made during development (a page split in the wrong places, a server that faked its replies, hyphenated JavaScript names), so each bug that showed up once is guarded against for good.
+Honest limitations
+It's a 2B model. It gets simple-to-medium tasks right and makes beginner mistakes on bigger ones. The checks catch many of them, not all. A larger multi-file program (for example, a web server wired into Tessera itself) still needed a human to finish.
+It's slow. Expect a few tokens per second on a 3050, and a multi-step build can take several minutes.
+Generated skills run as your user. There's a risk scan and an approval step, but it is not a security sandbox. Read what it asks to run.
+Desktop control and vision (PyAutoGUI and Gemma vision) are implemented but early, and less tested than the rest.
+License
+MIT. See `LICENSE`.
