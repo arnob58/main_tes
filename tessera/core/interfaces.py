@@ -25,6 +25,7 @@ class ModelProvider(Protocol):
         temperature: float = 0.3,
         grammar: str | None = None,
         stop: Sequence[str] | None = None,
+        repeat_penalty: float | None = None,
     ) -> GenerationResult:
         """Run one fresh, stateless chat completion.
 

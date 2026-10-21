@@ -97,7 +97,7 @@ def test_full_system_wiring_one_model(tmp_path):
     loads_before = LlamaCppEngine._live_instance
     system = build_system(cfg, base, StaticApprover(), embedder=HashingEmbedder())
     natives = {s.name for s in system.engine.registry.all() if s.origin == "native"}
-    assert natives == {"write_python_module", "build_project", "find_chat_app", "chat_with_app",
+    assert natives == {"write_file", "create_file", "write_python_module", "build_project", "find_chat_app", "chat_with_app",
                        "look_at_screen", "desktop_task", "improve_source"}
     # every consumer holds the same wrapped instance, which wraps the one base model
     pipeline = system.app.orchestrator.pipeline

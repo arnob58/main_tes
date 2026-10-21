@@ -1,0 +1,32 @@
+# Copy to tessera.toml and edit. Any field from tessera/config.py may appear here;
+# environment variables TESSERA_<FIELD> override this file.
+
+backend = "llama_cpp"                 # or "server" (then set server_url)
+model_path = "models/gemma.gguf"
+mmproj_path = "models/mmproj-gemma-4-e2b.gguf"   # vision; leave "" for text-only
+gpu_layers = -1
+context_window = 4096
+context_recovery_threshold = 0.90
+
+agent_max_tokens = 768
+respond_max_tokens = 1024
+max_continuations = 3                 # auto-continue when a reply hits its cap
+max_agent_iterations = 24
+max_revisions = 2
+max_skill_calls = 20
+max_stalled_calls = 3                 # stop tools early after 3 calls in a row without progress
+
+embedder = "minilm"                   # "hashing" = lexical fallback, no download
+recall_k = 5
+
+auto_install_dependencies = false     # true = install pip packages without asking
+skill_timeout_s = 60
+desktop_max_steps = 15
+output_directory = "~/Documents/Tessera"   # files you ask for are saved here
+
+# Pipelines are data: reorder, drop or add stages without touching code.
+# Tip once you have real latency numbers: instant = ["respond"] saves a model call per chat turn.
+[pipelines]
+instant = ["interpret", "respond"]
+medium  = ["interpret", "develop", "respond"]
+complex = ["interpret", "develop", "evaluate", "respond"]

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tessera</title>
+<style>
+:root {
+  --bg: #0f1115; --panel: #161a21; --raised: #1d222b; --line: #2a303b;
+  --text: #e6e8ec; --muted: #8b93a1; --accent: #5eead4; --accent-ink: #062b26;
+  --user: #24303f; --warn: #fbbf24; --bad: #f87171; --good: #4ade80;
+  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 15px/1.55 "Segoe UI", system-ui, -apple-system, sans-serif;
+  display: flex; flex-direction: column;
+}
+header {
+  display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+  border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.logo { width: 26px; height: 26px; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+.logo span { background: var(--accent); border-radius: 3px; }
+.logo span:nth-child(2), .logo span:nth-child(3) { opacity: .45; }
+h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+.status { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.ok { background: var(--good); } .dot.busy { background: var(--warn); animation: pulse 1s infinite; }
+.dot.off { background: var(--bad); }
+@keyframes pulse { 50% { opacity: .35; } }
+.spacer { flex: 1; }
+button {
+  font: inherit; border: 1px solid var(--line); background: var(--raised); color: var(--text);
+  padding: 7px 14px; border-radius: 8px; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button.danger { border-color: var(--bad); color: var(--bad); }
+
+main { flex: 1; overflow-y: auto; }
+.thread { max-width: 860px; margin: 0 auto; padding: 24px 20px 12px; display: flex; flex-direction: column; gap: 18px; }
+.empty { text-align: center; color: var(--muted); margin-top: 12vh; }
+.empty h2 { color: var(--text); font-weight: 600; margin-bottom: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 18px; }
+.chips button { font-size: 13.5px; border-radius: 999px; }
+
+.msg { display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
+.msg.user { align-items: flex-end; }
+.bubble { padding: 10px 14px; border-radius: 14px; max-width: 85%; overflow-wrap: anywhere; }
+.user .bubble { background: var(--user); border-bottom-right-radius: 4px; white-space: pre-wrap; }
+.bot .bubble { background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.bot .bubble.failed { border-color: var(--bad); }
+.bubble p { margin: 0 0 8px; } .bubble p:last-child { margin-bottom: 0; }
+.bubble code { font-family: var(--mono); font-size: 13px; background: var(--raised); padding: 1px 5px; border-radius: 4px; }
+.bubble pre { background: #0b0d11; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-x: auto; margin: 8px 0; }
+.bubble pre code { background: none; padding: 0; }
+.bubble ul { margin: 4px 0 8px; padding-left: 20px; }
+.meta { font-size: 12px; color: var(--muted); padding: 0 4px; }
+
+details.steps { max-width: 85%; font-size: 13px; color: var(--muted); }
+details.steps summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; }
+details.steps summary::-webkit-details-marker { display: none; }
+details.steps summary::before { content: "▸"; transition: transform .15s; }
+details.steps[open] summary::before { transform: rotate(90deg); }
+.steplist { margin: 6px 0 0 14px; border-left: 2px solid var(--line); padding-left: 10px; font-family: var(--mono); font-size: 12px; max-height: 260px; overflow-y: auto; }
+.steplist div { padding: 1px 0; white-space: pre-wrap; }
+.steplist b { color: var(--accent); font-weight: 500; }
+.steplist .err b { color: var(--bad); }
+.spinner { width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.approval { max-width: 85%; border: 1px solid var(--warn); background: rgba(251,191,36,.07); border-radius: 12px; padding: 12px 14px; }
+.approval h3 { margin: 0 0 4px; font-size: 14px; color: var(--warn); }
+.approval pre { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; margin: 6px 0 10px; color: var(--text); max-height: 220px; overflow-y: auto; }
+.approval .row { display: flex; gap: 8px; }
+.approval.done { opacity: .6; border-color: var(--line); }
+
+footer { border-top: 1px solid var(--line); background: var(--panel); }
+.composer { max-width: 860px; margin: 0 auto; padding: 12px 20px 16px; display: flex; gap: 10px; align-items: flex-end; }
+textarea {
+  flex: 1; resize: none; max-height: 200px; min-height: 44px; padding: 11px 14px;
+  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+}
+textarea:focus { outline: none; border-color: var(--accent); }
+.hint { max-width: 860px; margin: -8px auto 0; padding: 0 20px 10px; font-size: 11.5px; color: var(--muted); }
+@media (max-width: 600px) { .bubble, details.steps, .approval { max-width: 100%; } header { padding: 10px 14px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><span></span><span></span><span></span><span></span></div>
+  <h1>Tessera</h1>
+  <div class="status"><span class="dot" id="dot"></span><span id="statusText">connecting…</span></div>
+  <div class="spacer"></div>
+  <button id="newChat" title="Clear this conversation (long-term memory is kept)">New chat</button>
+</header>
+
+<main id="scroller">
+  <div class="thread" id="thread">
+    <div class="empty" id="empty">
+      <h2>Hi, I'm Tessera.</h2>
+      <div>Ask a question, or ask me to build something. Files I make go to your Tessera folder.</div>
+      <div class="chips">
+        <button data-q="What can you do?">What can you do?</button>
+        <button data-q="Build a simple weather tracker web page for Toronto using Open-Meteo, and save it as weather/weather.html">Build a weather page</button>
+        <button data-q="Read D:\tessera\README.md and summarise it in five bullet points">Summarise the README</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="composer">
+    <textarea id="input" rows="1" placeholder="Message Tessera…"></textarea>
+    <button id="send" class="primary">Send</button>
+    <button id="stop" class="danger" hidden>Stop</button>
+  </div>
+  <div class="hint">Enter to send · Shift+Enter for a new line</div>
+</footer>
+
+<script>
+const thread = document.getElementById('thread');
+const scroller = document.getElementById('scroller');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+const stopBtn = document.getElementById('stop');
+const dot = document.getElementById('dot');
+const statusText = document.getElementById('statusText');
+let busy = false;
+let modelName = '';
+let current = null;           // { steps, list, summary } for the task in progress
+const approvals = new Map();  // id → card element
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+}
+
+// Small, safe markdown: code fences, inline code, bold, bullet lists, paragraphs.
+function render(md) {
+  const parts = String(md).split(/```[\w+-]*\n?/);
+  let html = '';
+  parts.forEach((part, i) => {
+    if (i % 2 === 1) { html += '<pre><code>' + esc(part.replace(/\n$/, '')) + '</code></pre>'; return; }
+    const blocks = part.split(/\n{2,}/).filter(b => b.trim());
+    for (const block of blocks) {
+      const lines = block.split('\n');
+      const inline = t => esc(t).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+      if (lines.every(l => /^\s*[-*•]\s+/.test(l))) {
+        html += '<ul>' + lines.map(l => '<li>' + inline(l.replace(/^\s*[-*•]\s+/, '')) + '</li>').join('') + '</ul>';
+      } else {
+        html += '<p>' + lines.map(inline).join('<br>') + '</p>';
+      }
+    }
+  });
+  return html;
+}
+
+function scrollDown() { scroller.scrollTop = scroller.scrollHeight; }
+
+function addUser(text) {
+  document.getElementById('empty')?.remove();
+  const el = document.createElement('div');
+  el.className = 'msg user';
+  el.innerHTML = '<div class="bubble"></div>';
+  el.firstChild.textContent = text;
+  thread.appendChild(el);
+  scrollDown();
+}
+
+function startSteps() {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg bot';
+  wrap.innerHTML = '<details class="steps" open><summary><span class="spinner"></span><span class="sum">Thinking…</span></summary><div class="steplist"></div></details>';
+  thread.appendChild(wrap);
+  current = { wrap, details: wrap.querySelector('details'), list: wrap.querySelector('.steplist'),
+              summary: wrap.querySelector('.sum'), count: 0 };
+  scrollDown();
+}
+
+function addStep(channel, message) {
+  if (!current) startSteps();
+  const row = document.createElement('div');
+  if (channel === 'Error') row.className = 'err';
+  row.innerHTML = '<b>' + esc(channel) + '</b> ' + esc(message);
+  current.list.appendChild(row);
+  current.list.scrollTop = current.list.scrollHeight;
+  current.count++;
+  current.summary.textContent = message.length > 80 ? message.slice(0, 80) + '…' : message;
+  scrollDown();
+}
+
+function finish(data) {
+  if (!current) startSteps();
+  const { wrap, details } = current;
+  details.querySelector('.spinner')?.remove();
+  current.summary.textContent = current.count + ' step' + (current.count === 1 ? '' : 's');
+  details.open = false;
+  if (current.count === 0) details.remove();
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble' + (data.status && data.status !== 'completed' ? ' failed' : '');
+  bubble.innerHTML = render(data.text || '(no reply)');
+  wrap.appendChild(bubble);
+  const bits = [];
+  if (data.route) bits.push(data.route);
+  if (data.elapsed != null) bits.push(data.elapsed + ' s');
+  if (data.tokens) bits.push(data.tokens + ' tokens');
+  if (data.status && data.status !== 'completed') bits.push(data.status);
+  if (bits.length) {
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = bits.join(' · ');
+    wrap.appendChild(meta);
+  }
+  current = null;
+  scrollDown();
+}
+
+function showApproval(a) {
+  if (!current) startSteps();
+  const card = document.createElement('div');
+  card.className = 'approval';
+  card.innerHTML = '<h3>Tessera is asking permission</h3><div></div><pre></pre>' +
+                   '<div class="row"><button class="primary">Allow</button><button>Deny</button></div>';
+  card.children[1].textContent = 'Action: ' + a.action;
+  card.children[2].textContent = a.detail;
+  const [allow, deny] = card.querySelectorAll('button');
+  allow.onclick = () => answer(a.id, true);
+  deny.onclick = () => answer(a.id, false);
+  current.wrap.appendChild(card);
+  approvals.set(a.id, card);
+  scrollDown();
+}
+
+function closeApproval(id, ok) {
+  const card = approvals.get(id);
+  if (!card) return;
+  card.classList.add('done');
+  card.querySelector('.row').innerHTML = '<span class="meta">' + (ok ? 'Allowed' : 'Denied') + '</span>';
+  approvals.delete(id);
+}
+
+async function post(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(body || {}) });
+  let data = {};
+  try { data = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+
+async function answer(id, ok) {
+  try { await post('/api/approve', { id, ok }); } catch (e) { addStep('Error', e.message); }
+}
+
+function setBusy(b) {
+  busy = b;
+  sendBtn.hidden = b; stopBtn.hidden = !b;
+  stopBtn.disabled = false;
+  dot.className = 'dot ' + (b ? 'busy' : 'ok');
+  statusText.textContent = b ? 'working…' : ('ready' + (modelName ? ' · ' + modelName : ''));
+}
+
+async function send(text) {
+  text = (text ?? input.value).trim();
+  if (!text || busy) return;
+  input.value = ''; autosize();
+  addUser(text);
+  startSteps();
+  setBusy(true);
+  try { await post('/api/chat', { message: text }); }
+  catch (e) { finish({ text: 'Could not reach Tessera: ' + e.message, status: 'failed' }); setBusy(false); }
+}
+
+function connect() {
+  const es = new EventSource('/api/events');
+  es.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === 'hello') { modelName = m.model || ''; setBusy(m.busy); }
+    else if (m.type === 'progress') { if (busy) addStep(m.channel, m.message); }
+    else if (m.type === 'approval') showApproval(m);
+    else if (m.type === 'approval_closed') closeApproval(m.id, m.ok);
+    else if (m.type === 'reply') finish(m);
+    else if (m.type === 'idle') setBusy(false);
+  };
+  es.onerror = () => {
+    dot.className = 'dot off';
+    statusText.textContent = 'disconnected — is the server running?';
+  };
+}
+
+function autosize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 200) + 'px'; }
+
+input.addEventListener('input', autosize);
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+sendBtn.onclick = () => send();
+stopBtn.onclick = async () => {
+  stopBtn.disabled = true;
+  addStep('Stop', 'stopping at the next safe point…');
+  try { await post('/api/cancel'); } catch (e) {}
+};
+document.getElementById('newChat').onclick = async () => {
+  if (busy) return;
+  try { await post('/api/reset'); location.reload(); } catch (e) { alert(e.message); }
+};
+document.querySelectorAll('.chips button').forEach(b => b.onclick = () => send(b.dataset.q));
+connect();
+input.focus();
+</script>
+</body>
+</html>

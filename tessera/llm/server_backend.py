@@ -73,7 +73,8 @@ class LlamaServerEngine:
 
     # ------------------------------------------------------- ModelProvider
     def generate(self, messages: Sequence[Message], *, max_output_tokens: int = 256, temperature: float = 0.3,
-                 grammar: str | None = None, stop: Sequence[str] | None = None) -> GenerationResult:
+                 grammar: str | None = None, stop: Sequence[str] | None = None,
+                 repeat_penalty: float | None = None) -> GenerationResult:
         tokens = self._tokens(messages)
         room = self._n_ctx - len(tokens)
         if room < 1:
@@ -88,6 +89,8 @@ class LlamaServerEngine:
             body["grammar"] = grammar
         if stop:
             body["stop"] = list(stop)
+        if repeat_penalty:
+            body["repeat_penalty"] = repeat_penalty
         with self._lock:
             r = self._post("/completion", body)
         predicted = r.get("tokens_predicted", (r.get("timings") or {}).get("predicted_n", 0))

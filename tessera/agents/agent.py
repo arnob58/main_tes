@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from ..config import Config
+from ..context.continuation import merge_continuation
 from ..context.tracker import ContextTracker
 from ..core.interfaces import ModelProvider
 from ..core.types import GenerationResult, Message, Observation
@@ -39,6 +40,7 @@ class AgentInput:
     observations: Sequence[Observation] = ()
     capabilities: str = ""
     memory: str = ""
+    saved_files: str = ""       # contents of files saved this turn — evaluate/respond judge these
 
 
 # Hard upper bounds that keep absurd inputs out of the tokenizer; real
@@ -46,9 +48,14 @@ class AgentInput:
 SECTION_CHAR_CAP = 12000
 OBSERVATION_CHAR_CAP = 4000
 MIN_OUTPUT_TOKENS = 32
+CONTINUE_TAIL_CHARS = 1500
+CONTINUE_INSTRUCTION = (
+    "Your previous reply was cut off by the length limit. Continue exactly where it stopped. "
+    "Do not repeat anything already written and do not comment on the interruption."
+)
 
 # Shrink order: first entry is sacrificed first.
-SHRINK_ORDER = ("memory", "history", "observations", "capabilities", "analysis", "draft", "feedback")
+SHRINK_ORDER = ("memory", "history", "observations", "capabilities", "analysis", "draft", "feedback", "files")
 
 
 def _cap(text: str, limit: int) -> str:
@@ -69,6 +76,7 @@ class Agent:
         self._model = model
         self._tracker = tracker
         self._max_tokens = int(getattr(cfg, spec.budget_key))
+        self._max_continuations = cfg.max_continuations
         self._temperature = spec.temperature if spec.temperature is not None else cfg.default_temperature
         self.last_fit: dict = {}
 
@@ -92,13 +100,16 @@ class Agent:
             s["draft"] = _cap(inp.draft, SECTION_CHAR_CAP)
         if inp.evaluation_feedback and name == "develop":
             s["feedback"] = _cap(inp.evaluation_feedback, 2000)
+        if inp.saved_files and name in ("evaluate", "respond"):
+            s["files"] = _cap(inp.saved_files, SECTION_CHAR_CAP)
         return s
 
     _TITLES = {
         "memory": "MEMORY", "analysis": "ANALYSIS NOTES", "capabilities": "AVAILABLE CAPABILITIES",
         "observations": "OBSERVATIONS", "draft": "DRAFT", "feedback": "REVISION REQUESTED",
+        "files": "SAVED FILES (the actual deliverable)",
     }
-    _ORDER = ("memory", "analysis", "capabilities", "observations", "draft", "feedback")
+    _ORDER = ("memory", "analysis", "capabilities", "observations", "files", "draft", "feedback")
 
     def _compose(self, request: str, history: Sequence[Message], sections: dict[str, str]) -> list[Message]:
         msgs = [Message.system(self.spec.system_prompt)]
@@ -148,4 +159,55 @@ class Agent:
 
     def run(self, inp: AgentInput) -> GenerationResult:
         msgs, budget = self._fit(inp)
-        return self._model.generate(msgs, max_output_tokens=budget, temperature=self._temperature)
+        result = self._model.generate(msgs, max_output_tokens=budget, temperature=self._temperature)
+        if result.finish_reason != "length" or self._max_continuations <= 0:
+            return result
+        return self._continue(inp, msgs, result)
+
+    # ---------------------------------------------------------- continuation
+    def _continue(self, inp: AgentInput, msgs: list[Message], first: GenerationResult) -> GenerationResult:
+        """The output cap cut the reply off: ask for the rest, bounded.
+
+        Normally the partial reply is appended as an assistant turn and the
+        model continues from it. If that would cross the context threshold,
+        a fresh, compact prompt is built instead (request + tail of the
+        partial answer) — the same externalised-state idea as Phase 4.
+        """
+        text, fin = first.text, first.finish_reason
+        tin, tout, rounds, fresh_rounds = first.input_tokens, first.output_tokens, 0, 0
+        while fin == "length" and rounds < self._max_continuations:
+            rounds += 1
+            cont = list(msgs) + [Message.assistant(text), Message.user(CONTINUE_INSTRUCTION)]
+            room = self._max_tokens
+            if self._tracker is not None:
+                usage = self._tracker.measure(cont, self._max_tokens)
+                if usage.needs_recovery:
+                    fresh_rounds += 1
+                    tail = text[-CONTINUE_TAIL_CHARS:]
+                    cont = [
+                        Message.system(self.spec.system_prompt),
+                        Message.user(f"REQUEST:\n{inp.request}\n\nYOUR ANSWER SO FAR ENDS WITH:\n{tail}\n\n"
+                                     f"{CONTINUE_INSTRUCTION}"),
+                    ]
+                    usage = self._tracker.measure(cont, self._max_tokens)
+                    room = min(self._max_tokens, usage.safe_output_budget)
+                    reset = getattr(self._model, "reset_context", None)
+                    if callable(reset):
+                        reset()
+                if room < MIN_OUTPUT_TOKENS:
+                    break
+            r = self._model.generate(cont, max_output_tokens=room, temperature=self._temperature)
+            tin += r.input_tokens
+            tout += r.output_tokens
+            fin = r.finish_reason
+            piece = r.text
+            if not piece.strip():
+                break
+            joiner = "" if text.endswith((" ", "\n")) or piece.startswith((" ", "\n", ",", ".", ";", ":")) else " "
+            text = merge_continuation(text, piece) if "\n" in text[-200:] and "\n" in piece[:200] else text + joiner + piece
+        if fin == "length" and self.spec.user_facing:
+            text = text.rstrip() + "\n\n[This answer was cut short at the length limit. Ask me to continue.]"
+        return GenerationResult(
+            text=text, input_tokens=tin, output_tokens=tout, finish_reason=fin,
+            metadata={**first.metadata, "continuations": rounds, "fresh_context_continuations": fresh_rounds},
+        )

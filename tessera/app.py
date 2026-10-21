@@ -63,6 +63,7 @@ def build_app(
     embedder: Embedder | None = None,
     checkpoints=None,
     on_reply=None,
+    file_reader=None,
 ) -> App:
     events = events or EventBus()
     specs = specs or DEFAULT_SPECS
@@ -78,7 +79,7 @@ def build_app(
         memory.attach(context, cfg.active_message_limit)
 
     orch = Orchestrator(router, pipeline, context, events, memory=memory, recall_k=cfg.recall_k,
-                        checkpoints=checkpoints, on_reply=on_reply)
+                        checkpoints=checkpoints, on_reply=on_reply, file_reader=file_reader)
     return App(cfg, model, events, orch, memory, db)
 
 
@@ -166,9 +167,13 @@ def build_system(
     from .execution.artifacts import WorkspaceManager
     from .execution.desktop_loop import DesktopLoop
     from .execution.gui_adapter import PyAutoGuiDriver
-    from .tools.codegen import BuildProjectTool, WriteModuleTool
+    from .tools.codegen import BuildProjectTool
+    from .tools.file_builder import AliasTool
     from .tools.desktop import DesktopTaskTool, LookAtScreenTool
     from .tools.external import ChatWithAppTool, FindChatAppTool
+    from .tools.file_builder import CreateFileTool, SectionedFileBuilder
+    from .tools.html_builder import HtmlPageBuilder
+    from .tools.files import WriteFileTool
     from .tools.self_improve import ImproveSourceTool, SourceModifier
 
     events = events or EventBus()
@@ -189,8 +194,19 @@ def build_system(
 
     tracker = ContextTracker(model, cfg.context_recovery_threshold)
     longgen = LongCodeGenerator(model, tracker, checkpoints, events=events)
-    engine.registry.register_native(WriteModuleTool(longgen, workspaces))
-    engine.registry.register_native(BuildProjectTool(ProjectBuilder(model, longgen, events=events), workspaces))
+    writer = WriteFileTool(cfg.output_directory, approver)
+    engine.registry.register_native(writer)
+    file_tracker = ContextTracker(model, cfg.context_recovery_threshold)
+    builder = SectionedFileBuilder(model, file_tracker, events=events)
+    pages = HtmlPageBuilder(model, file_tracker, events=events)
+    from .core.file_refs import FileReferenceReader
+
+    create = CreateFileTool(builder, writer, pages, file_reader=FileReferenceReader(base_dirs=(Path.cwd(),)))
+    engine.registry.register_native(create)
+    out_dir = writer.output_dir
+    # One file tool: the old name is kept as a shortcut so every file gets the full checks.
+    engine.registry.register_native(AliasTool("write_python_module", "Same as create_file, for a Python file", create))
+    engine.registry.register_native(BuildProjectTool(ProjectBuilder(model, longgen, events=events), workspaces, out_dir))
     engine.registry.register_native(FindChatAppTool())
     engine.registry.register_native(ChatWithAppTool(model, approver, events))
 
@@ -214,6 +230,7 @@ def build_system(
             metrics.record("turn_model_calls", reply.model_calls, route=reply.route.label())
 
     app = build_app(cfg, model, bridge=engine, events=events, db=db, embedder=embedder,
-                    checkpoints=checkpoints, on_reply=on_reply)
+                    checkpoints=checkpoints, on_reply=on_reply,
+                    file_reader=FileReferenceReader(base_dirs=(Path.cwd(), out_dir)))
     workflows = WorkflowRunner(model, app.orchestrator.pipeline, checkpoints, approver, events=events)
     return System(app, engine, workflows, metrics, checkpoints, vision)

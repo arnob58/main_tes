@@ -31,19 +31,24 @@ class Config:
     n_threads: int = 0             # 0 = let llama.cpp decide
     seed: int = 42
     reset_kv_between_calls: bool = False  # prefix reuse is safe; see engine docs
+    flash_attn: bool = True        # smaller V cache + usually faster on CUDA; set false if your build misbehaves
+    swa_full: bool | None = None   # None = llama.cpp default; False shrinks the sliding-window KV cache
 
     # --- generation budgets ----------------------------------------------
     router_max_tokens: int = 8
-    agent_max_tokens: int = 384
-    respond_max_tokens: int = 512
+    agent_max_tokens: int = 768
+    respond_max_tokens: int = 1024
+    max_continuations: int = 3      # extra rounds when a stage hits its output cap
     default_temperature: float = 0.3
     router_temperature: float = 0.0
 
     # --- reasoning -------------------------------------------------------
     pipelines: dict[str, list[str]] = field(default_factory=lambda: dict(DEFAULT_PIPELINES))
-    max_agent_iterations: int = 8   # total agent passes allowed per request
+    max_agent_iterations: int = 24  # total agent passes allowed per request
     max_revisions: int = 2          # Evaluate → Develop loops
-    max_skill_calls: int = 4        # Develop → skill → Develop loops
+    max_skill_calls: int = 20       # hard ceiling on tool calls per request
+    max_stalled_calls: int = 3      # stop earlier after this many calls in a row without progress
+    max_save_nudges: int = 1        # times Develop is reminded to save code it only printed
 
     # --- context / memory ------------------------------------------------
     context_recovery_threshold: float = 0.90
@@ -69,6 +74,7 @@ class Config:
 
     # --- autonomy (phases 5-6) --------------------------------------------
     checkpoint_directory: str = "storage/checkpoints"
+    output_directory: str = "~/Documents/Tessera"      # where write_file saves relative paths
     gui_enabled: bool = True
     desktop_max_steps: int = 15
     self_modification_enabled: bool = True
@@ -79,6 +85,9 @@ class Config:
 
 
 def _coerce(value: str, current: Any) -> Any:
+    if current is None:  # optional tri-state settings such as swa_full
+        v = value.strip().lower()
+        return None if v in {"", "none", "default"} else v in {"1", "true", "yes", "on"}
     if isinstance(current, bool):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     if isinstance(current, int):

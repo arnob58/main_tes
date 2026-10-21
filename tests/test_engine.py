@@ -143,3 +143,30 @@ def test_missing_chat_template_is_an_error():
     with pytest.raises(RuntimeError, match="chat template"):
         make(fake=fake)
     assert LlamaCppEngine._live_instance is None and fake.closed
+
+
+def test_llama_kwargs_drop_options_old_versions_lack():
+    from tessera.llm.engine import llama_kwargs
+
+    class OldLlama:  # e.g. a release without flash_attn / swa_full
+        def __init__(self, model_path, n_gpu_layers=0, n_ctx=512, n_threads=None, seed=0, verbose=True, chat_handler=None):
+            pass
+
+    kw = llama_kwargs(Config(swa_full=False), OldLlama, chat_handler=None)
+    assert "flash_attn" not in kw and "swa_full" not in kw and "chat_handler" not in kw
+    assert kw["n_ctx"] == 4096 and kw["n_gpu_layers"] == -1
+
+
+def test_llama_kwargs_against_installed_library():
+    llama_cpp = pytest.importorskip("llama_cpp")
+    from tessera.llm.engine import llama_kwargs
+
+    kw = llama_kwargs(Config(swa_full=False), llama_cpp.Llama)
+    assert kw["flash_attn"] is True and kw["swa_full"] is False
+
+
+def test_env_tristate():
+    from tessera.config import load_config
+
+    assert load_config(None, env={"TESSERA_SWA_FULL": "false"}).swa_full is False
+    assert load_config(None, env={"TESSERA_SWA_FULL": "none"}).swa_full is None

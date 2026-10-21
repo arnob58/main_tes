@@ -45,6 +45,10 @@ class ActiveContext:
         for m in messages:
             self.append(m)
 
+    def clear(self) -> None:
+        """Start a fresh conversation. Long-term memory is untouched (already stored on append)."""
+        self._window.clear()
+
     def messages(self) -> list[Message]:
         return list(self._window)
 

@@ -43,7 +43,9 @@ class MiniLMEmbedder:
                 from sentence_transformers import SentenceTransformer  # heavy import, deferred
 
                 self._model = SentenceTransformer(self.name, device="cpu")
-                got = self._model.get_sentence_embedding_dimension()
+                dim_fn = getattr(self._model, "get_embedding_dimension", None) or \
+                    self._model.get_sentence_embedding_dimension  # renamed in newer sentence-transformers
+                got = dim_fn()
                 if got != self.dim:
                     raise RuntimeError(f"{self.name} produces {got}-d vectors, expected {self.dim}")
         return self._model

@@ -2,17 +2,13 @@
 # environment variables TESSERA_<FIELD> override this file.
 
 backend = "llama_cpp"                 # or "server" (then set server_url)
-model_path = "models/gemma-4-e2b-it-Q4_K_M.gguf"
-mmproj_path = "models/mmproj-gemma-4-e2b.gguf"   # vision; leave "" for text-only
+model_path = "models/gemma.gguf"
+mmproj_path = ""   # vision; leave "" for text-only
 gpu_layers = -1
 context_window = 4096
 context_recovery_threshold = 0.90
 
-agent_max_tokens = 384
-respond_max_tokens = 512
-max_agent_iterations = 8
 max_revisions = 2
-max_skill_calls = 4
 
 embedder = "minilm"                   # "hashing" = lexical fallback, no download
 recall_k = 5

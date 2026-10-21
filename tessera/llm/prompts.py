@@ -22,6 +22,7 @@ class AgentSpec:
     temperature: float | None = None       # None → config default
     sees_history: bool = False             # include the active conversation window?
     sees_memory: bool = True               # include recalled long-term evidence?
+    user_facing: bool = False              # its text is shown to the user verbatim
 
 
 ROUTER_PROMPT = """Stage: router.
@@ -33,6 +34,9 @@ hi there -> Instant|no
 what time is it -> Instant|yes
 explain how vaccines train the immune system -> Medium|no
 find my resume and summarize it -> Complex|yes
+create me a website tracker -> Complex|yes
+build a to-do app -> Complex|yes
+write a python script that renames my photos -> Complex|yes
 design a database schema for a library -> Complex|no"""
 
 ROUTER_GRAMMAR = r'''root ::= complexity "|" flag
@@ -67,6 +71,17 @@ DEVELOP = AgentSpec(
         "If you need a capability, write on its own line:\n"
         f"{ACTION_FORMAT}\n"
         "and stop; the result will be shown to you as an OBSERVATION. "
+        "If the user asks to create, build, write or save a file, page, script or project, you MUST save it. "
+        "Code in your reply is NOT a saved file. For anything longer than ~40 lines, describe it and let the "
+        "create_file tool write it in parts, e.g.\n"
+        'ACTION: create_file {"path": "notes_app/index.html", "description": "A notes page: ... (every feature, '
+        'every design detail, every API URL the user gave)"}\n'
+        "For a short file, write it directly in this plain format (no JSON, no escaping):\n"
+        "FILE: folder/name.txt\n<exact file content>\nEND FILE\n"
+        "If no listed capability fits, request one anyway with a descriptive snake_case name and the arguments it "
+        "needs; it will be written, tested and kept for next time.\n"
+        "If an OBSERVATION shows an error or bugs, fix the cause and try again with the corrected input — do not "
+        "give up after one failure and do not repeat the same failing call.\n"
         "Never invent observations or execution results."
     ),
 )
@@ -77,7 +92,9 @@ EVALUATE = AgentSpec(
         "Stage: evaluate.\n"
         "Check the draft against the request and the analysis: correctness, logic, "
         "unmet requirements, failed or missing evidence. List concrete problems, "
-        "if any, in at most 5 short lines. End with exactly one line:\n"
+        "if any, in at most 5 short lines. If SAVED FILES are present, they are the deliverable: judge the file "
+        "content, not the draft text — a saved file that does what was asked means PASS. "
+        "End with exactly one line:\n"
         "VERDICT: PASS\n"
         "or\n"
         "VERDICT: REVISE - <the single most important fix>"
@@ -93,10 +110,15 @@ RESPOND = AgentSpec(
         "Write the final reply to the user, grounded only in the material provided "
         "(notes, draft, observations). Do not mention stages, notes or drafts. "
         "If something could not be done or verified, say so plainly. "
-        "Never claim an action ran unless an observation shows it did."
+        "Never claim an action ran unless an observation shows it did. "
+        "Give the answer itself: never narrate your own process or say what you 'will' do. "
+        "When an observation shows a file was saved, give its full path and a 1-2 sentence summary — do not "
+        "paste the file's contents. "
+        "If the request is too vague to do well, ask ONE short clarifying question with 2-3 example options instead."
     ),
     budget_key="respond_max_tokens",
     sees_history=True,
+    user_facing=True,
 )
 
 DEFAULT_SPECS: dict[str, AgentSpec] = {s.name: s for s in (INTERPRET, DEVELOP, EVALUATE, RESPOND)}

@@ -22,6 +22,7 @@ Design notes
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 from typing import Any, Callable, Sequence
 
@@ -69,15 +70,35 @@ def _default_llama_factory(cfg: Config) -> Any:
             "(build it with CUDA for GPU offload)."
         ) from exc
     handler, _ = vision_handler_for(cfg)
-    return Llama(
-        chat_handler=handler,
-        model_path=cfg.model_path,
-        n_gpu_layers=cfg.gpu_layers,
-        n_ctx=cfg.context_window,
-        n_threads=cfg.n_threads or None,
-        seed=cfg.seed,
-        verbose=False,
-    )
+    return Llama(**llama_kwargs(cfg, Llama, chat_handler=handler))
+
+
+def llama_kwargs(cfg: Config, llama_cls: Any, **extra: Any) -> dict[str, Any]:
+    """Constructor arguments, keeping only those this llama-cpp-python version accepts.
+
+    Optional tuning knobs (flash attention, SWA cache size) exist only in some
+    versions; unsupported ones are dropped with a log line rather than crashing.
+    """
+    import inspect
+
+    wanted: dict[str, Any] = {
+        "model_path": cfg.model_path,
+        "n_gpu_layers": cfg.gpu_layers,
+        "n_ctx": cfg.context_window,
+        "n_threads": cfg.n_threads or None,
+        "seed": cfg.seed,
+        "verbose": False,
+        "flash_attn": cfg.flash_attn,
+        **extra,
+    }
+    if cfg.swa_full is not None:
+        wanted["swa_full"] = cfg.swa_full
+    accepted = inspect.signature(llama_cls.__init__).parameters
+    dropped = sorted(k for k in wanted if k not in accepted)
+    if dropped:
+        log.info("llama-cpp-python %s ignores unsupported options: %s",
+                 getattr(sys.modules.get("llama_cpp"), "__version__", "?"), ", ".join(dropped))
+    return {k: v for k, v in wanted.items() if k in accepted and (k != "chat_handler" or v is not None)}
 
 
 def _default_grammar_compiler(gbnf: str) -> Any:
@@ -171,6 +192,7 @@ class LlamaCppEngine:
         temperature: float = 0.3,
         grammar: str | None = None,
         stop: Sequence[str] | None = None,
+        repeat_penalty: float | None = None,
     ) -> GenerationResult:
         tokens, template_stops = self._render(messages)
         prompt_len = len(tokens)
@@ -187,6 +209,8 @@ class LlamaCppEngine:
         }
         if grammar:
             kwargs["grammar"] = self._compiled(grammar)
+        if repeat_penalty:
+            kwargs["repeat_penalty"] = repeat_penalty  # discourages the copy-paste loops small models fall into
 
         with self._lock:
             if self._cfg.reset_kv_between_calls:

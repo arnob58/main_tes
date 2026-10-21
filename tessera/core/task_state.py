@@ -83,6 +83,13 @@ class WorkingMemory:
     memory_context: str = ""
     agent_passes: int = 0
     skill_calls: int = 0
+    save_nudges: int = 0
+    failed_calls: set[str] = field(default_factory=set)
+    saved_files: dict[str, str] = field(default_factory=dict)   # path → content (capped), files made this turn
+    stalled_calls: int = 0                                      # tool calls in a row without progress
+    last_error: str = ""
+    last_tool: str = ""
+    tool_streak: int = 0                                        # consecutive failures of the same tool
     revisions: int = 0
     input_tokens: int = 0
     output_tokens: int = 0

@@ -24,6 +24,7 @@ include = ["tessera*"]
 [tool.setuptools.package-data]
 "tessera.skills" = ["builtin/*.py", "recipes/*.py", "generated/.gitkeep"]
 "tessera.execution" = ["harness.py"]
+"tessera.web" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

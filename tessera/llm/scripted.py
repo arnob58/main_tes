@@ -61,6 +61,7 @@ class ScriptedModel:
         temperature: float = 0.3,
         grammar: str | None = None,
         stop: Sequence[str] | None = None,
+        repeat_penalty: float | None = None,
     ) -> GenerationResult:
         self.calls.append(ScriptedCall(list(messages), max_output_tokens, temperature, grammar))
         text = None

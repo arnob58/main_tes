@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from dataclasses import dataclass
 
 from ..agents.pipeline import Pipeline
@@ -45,7 +46,9 @@ class Orchestrator:
         recall_k: int = 5,
         checkpoints=None,
         on_reply=None,
+        file_reader=None,
     ) -> None:
+        self._files = file_reader  # FileReferenceReader | None — reads files the user names
         self._on_reply = on_reply  # Callable[[Reply], None] — e.g. metrics
         self._checkpoints = checkpoints  # CheckpointStore | None — interrupted tasks stay inspectable
         self._memory = memory
@@ -86,10 +89,27 @@ class Orchestrator:
                 n = working.memory_context.count("\n[#")
                 self._events.emit("Memory", f"{n} related memories" if n else "No related memories.")
 
+            if self._files is not None:
+                carried = self._files.previous_reads()
+                named = self._files.read_mentioned(working.objective)
+                working.observations.extend(carried + named)
+                if named:
+                    ok = [o.source[5:] for o in named if o.status == "success"]
+                    bad = [o.source[5:] for o in named if o.status != "success"]
+                    if ok:
+                        self._events.emit("Files", f"read {len(ok)} file(s) you named: {', '.join(Path(p).name for p in ok)}")
+                        working.memory_context = ""   # the files you named outrank old memories
+                    if bad:
+                        self._events.emit("Files", f"could not read: {', '.join(bad)}")
+                if carried:
+                    self._events.emit("Files", f"kept {len(carried)} file read(s) from your previous message")
+
             cancel.raise_if_cancelled()
             working.transition(TaskStatus.RUNNING)
             self._checkpoint(working)
             result = self._pipeline.run(working, history, cancel)
+            if self._files is not None:
+                self._files.remember([o for o in working.observations if "previous turn" not in " ".join(o.notes)])
             text = result.text
             working.transition(TaskStatus.COMPLETED)
 
