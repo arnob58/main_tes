@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tessera"
+version = "0.1.0"
+description = "Local-first modular agentic assistant (Gemma + Python + SQLite/MiniLM)"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+llm = ["llama-cpp-python>=0.3.36"]
+memory = ["sentence-transformers>=3.0"]
+desktop = ["pyautogui>=0.9.54", "pillow>=10"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+tessera = "tessera.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["tessera*"]
+
+[tool.setuptools.package-data]
+"tessera.skills" = ["builtin/*.py", "recipes/*.py", "generated/.gitkeep"]
+"tessera.execution" = ["harness.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

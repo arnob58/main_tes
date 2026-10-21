@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+storage/
+models/
+tessera.toml
+tessera/skills/generated/*.py
+tessera/skills/generated/*.bak*
+*.egg-info/

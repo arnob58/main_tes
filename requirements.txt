@@ -1,0 +1,6 @@
+numpy>=1.26
+llama-cpp-python>=0.3.36      # build with CUDA, see README
+sentence-transformers>=3.0    # MiniLM embeddings (CPU)
+pyautogui>=0.9.54             # desktop control
+pillow>=10                    # screenshots
+pytest>=8
