@@ -1,7 +1,7 @@
 Tessera
 A local AI agent that runs on a laptop GPU. Gemma 4 E2B does the thinking. Python does the work. Memory lives in a small SQLite graph instead of a heavy RAG stack. No API keys, no cloud, no monthly bill.
 Built and tested on a Windows laptop with an RTX 3050 (6 GB VRAM).
-![Tessera web chat](docs/screenshot.png)
+
 ---
 What it can do
 Chat, in the browser (`python -m tessera.web`) or in a terminal (`python -m tessera`).
